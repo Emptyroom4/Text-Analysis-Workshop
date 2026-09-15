@@ -27,9 +27,9 @@ The workshop is divided into two parts:
 - `01_Text_Analysis_2026.html` — Part 1 rendered workshop material
 - `02_Text_Analysis_2026.Rmd` — Part 2 source file (R Markdown)
 - `02_Text_Analysis_2026.html` — Part 2 rendered workshop material
-- 'Text_analysis_Workshop.pdf'
-- 'speaker_roster.csv'
-- 'ordinance.csv'
+- `Text_Analysis_Workshop.pdf` — Workshop slides, including the overview and AI-assisted workflow
+- `ordinance.csv` — Processed meeting transcript used for the text analysis
+- `speaker_roster.csv` — Speaker information used to identify and group speakers
 
 If you only want to read the workshop materials, open the `.html` files.
 
