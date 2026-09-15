@@ -1,0 +1,527 @@
+
+---
+title: "[UVA StatLab] Text Analysis Pt 1: Data Collection"
+subtitle: "Scraping a Charlottesville City Council meeting transcript with R"
+author:
+  - "Lucy Hong"
+  - "Hyeseon Seo"
+date: 2026-09-11
+format:
+  html:
+    toc: true
+    embed-resources: true
+    df-print: paged
+execute:
+  message: false
+  warning: false
+---
+
+## Introduction
+This workshop aims to provide a simple introduction to text analysis in R. We're going to build the data pipeline end to end on real text data (the transcript of the **Charlottesville City Council meeting of September 2, 2025**) in three stages:
+
+1. **Collect** (this session): scrape the raw text file (transcript) into a tidy data.
+2. **Clean**: make cleaned data with tokenization, stopwords, and other related processes. 
+3. **Analyze**: explore text and test pilot hypotheses.
+
+We begin constructing our dataset from a *single* meeting for clarity and accessibility. (The code here can be used to scale up to hundreds of meetings later by changing one URL into a list of URLs.) We first collect the entire meeting, then subset it to the portions focused on a particular topic that are relevant to our text analysis. 
+
+Let’s start by checking our working directory and loading the required libraries. Before creating any data folders, check your working directory, which is the folder R uses as the starting location for reading and saving files. `getwd()` shows your current working directory, and later we will create two folders within this directory to save our data.
+
+```{r}
+getwd() # show the current working directory
+```
+
+The packages listed below are required for the different tasks. If you do not already have a package, install it by running  `install.packages("package_name")`. You generally need to install a package only once. After installing it, comment out the install command by placing # at the beginning of the line `# install.packages()`.  To use an installed package, load it with `library(package_name)` at the beginning of each new R session. 
+
+```{r}
+
+#| label: setup
+library(rvest)    # read and query HTML
+library(dplyr)    # data wrangling
+library(purrr)    # apply a function over many items
+library(stringr)  # string helpers (component of Tidyverse package)
+library(ggplot2)  # plots
+library(readr)     # read csv
+```
+
+
+Next, we specify the webpage we want to scrape and set up the folders and file paths for storing our data.
+```{r}
+
+# URL for scraping the transcript
+url <- "https://meetings.cvilledata.org/meetings/charlottesville/2485-city-council-meeting-2025-09-02" 
+
+# Create the data folders if they do not already exist
+## recursive = TRUE creates the parent data folder when necessary
+dir.create("data/raw", recursive = TRUE, showWarnings = FALSE) 
+dir.create("data/processed", recursive = TRUE, showWarnings = FALSE) 
+
+# File paths
+raw <- "data/raw/meeting-2485-city-council-2025-09-02.html" # Object storing the raw HTML file location
+out <- "data/processed/council_mtg_cville.csv" # Object storing the output CSV file location
+
+```
+
+Five steps include in data collection: 
+
+## Step 0: Data Collection: Can we scrape this?
+We can collect the text data stored in different formats, and we are going to use the "web-scraping" method here. Web-scraping is the practice of downloading the raw HTML code that creates a website. HTML(Hyper Text Markup Language) is the code used to structrue the content of a webpage, such as headings, paragrphas, links and tables. Web scrapping is one of the most common ways to collect textual data. But not all text data are available for web-scraping, so ask three questions before running it:
+
+**Is there an easier way?** Many sites offer downloads or an API (Application Programming Interface). An API allows you to request structured data directly from a service and is generally more reliable and efficient than extracting content from webpages. 
+
+**Does the site allow it?** Check `robots.txt` using the base R function `readLines()`. It connects to the URL and read the text file line by line, the plain text file where a website tells search engine crawlers (visitors) about which file or pages the crawler can or cannot request. 
+
+A robots.txt file tells automated web crawlers which parts of a website they are permitted or requested not to visit. It is created by the website administrator and is advisory rather than a security barrier.
+```{r}
+#| label: robots
+readLines("https://meetings.cvilledata.org/robots.txt")
+```
+
+`Allow: /` means everything on the site is open to automated access. That will not be true of every site you meet, such as the UVA library website, so make sure to check every time.
+
+Let's compare this with another example: the UVA Library website.
+
+```{r}
+readLines("https://library.virginia.edu/robots.txt", n=20) # read only first 20 lines
+```
+
+We see that, unlike with Charlottesville meetings website, the UVA Library website uses a more detailed `robots.txt` file to restrict access to administrative, login, search, and other internal areas.
+
+**How can we be a polite guest for scraping data?** Identify yourself with contact and identification information using headers, and request in accordance with request-rate (How many access can we request one page)
+
+## Step 1: Look before you code
+Before writing any R, we answer two questions by looking at the page itself: (1) is the text actually in the page? and (2) what repeating pattern do we see?
+
+### 1a. Is the text actually in the page?
+1. Open the [meeting page](https://meetings.cvilledata.org/meetings/charlottesville/2485-city-council-meeting-2025-09-02) and pick some phrase from the transcrpt.
+2. Right-click anywhere -> **Inspect** (Chrome/Edge shortcut: `Cmd+U` on Mac, `Ctrl+U` on Windows). What you'll see is the HTML code that creates the webpage. If you use safari: **inspect element** go to `safari settings -> Advanced -> Show features` for web developers select!
+
+3. Press `Cmd+F` / `Ctrl+F` and search for your phrase.
+ In the Elements panel, press `Ctrl+F` (Windows) or `Cmd+F` (Mac), and search for a word that appears in the transcript (e.g., "ordinance" or "homeless"). If the word appears in the HTML, the transcript is already included in the page source (server-rendered), so `rvest` package can usually scrape it directly. 
+
+**Found some phrase?** Then the text is *server-rendered*: the full transcript arrives inside the page, and a plain download is enough. 
+
+**Not found?** The page is **rendered by JavaScript**, a programming language that can dynamically load or change webpage content after the initial HTML has loaded. The server may first send only a basic HTML structure, then JavaScript fetches or inserts the transcript in the browser. In that case, you would use browser automation—tools such as Selenium or Playwright to open the page, let JavaScript run and collect the rendered text—or simply use an API instead.
+
+### 1b. Find the repeating pattern
+Let's go back to the page for **Inspect** (Right-click on one caption line in the transcript). The panel that opens jumps to that exact element in the page's tree, and as you move your mouse over nearby lines in the panel, the browser highlights the part of the page each one covers. Walk upward and watch the highlight grow:
+
+- The element you landed on → one **caption line**;
+- Its parent, one level up → one whole **speaker turn** lights up;
+- Another level up → the **entire transcript**.
+
+That is the page's structure: transcript ⊃ turns ⊃ caption lines. To better understand what it means, let's say you're reading a book. To better understand the ideas from this book, you can draw a mindmap with different chapters, sections, and subsections. Once we can grasp the structure of the page, we can identify the meaningful units for our analysis. When you click a few of the collapse arrows (▸) and you'll see the same shape repeated over and over. **This repetition is what makes scraping possible.**
+
+### 1c. Read one unit closely
+
+One speaker turn, simplified and annotated:
+
+```html
+<li class="speaker-chunk">                       <!-- one speaker TURN -->
+  <li class="...">                               <!-- the label: WHO is speaking -->
+    Natalie Oschrin<span class="...">Member, City Council</span>
+  </li>
+  <li class="segment"                            <!-- one caption LINE -->
+      data-segment-start="213.037"               <!-- start time, in seconds -->
+      data-segment-end="214.965">                <!-- end time, in seconds -->
+    <div class="flex-none ...">00:03:33</div>    <!-- clock time, for humans -->
+    <div class="flex-grow"> So it took about two and a half minutes...</div>
+  </li>                                               <!-- ↑ the words themselves -->
+  <!-- ...more caption lines, then 456 more turns like this one... -->
+</li>
+```
+
+What to look at, in order of importance:
+
+| Look at | What it tells you |
+|---|---|
+| the **nesting** (boxes inside boxes) | the data's shape; a one-to-many relationship). |
+| `class="speaker-chunk"` / `"segment"` | the site's own **category labels** for "a turn" and "a caption line" |
+| `data-segment-start="213.037"` | facts stored as **attributes**: precise machine-readable timestamps. |
+| the bare text between tags | the content itself (what we're interested in!) |
+
+### 1d. Turn the findings into addresses
+Those `class` names (e.g., speaker-chunk, segment) become CSS selectors, meaning how we use those labels to ask for boxes in code. When you have a choice, it would be better to choose class names that describe *meaning* (`speaker-chunk`, `segment`) over ones that describe *appearance* (`flex-none`, `text-xs`).
+
+## Step 2: Download the data with politeness and efficiency
+To scrape the website responsibly, let’s identify who we are, our purpose, and our contact information through the User-Agent. This information is sent with our web request, so the site owner can identify our scraping activity and contact us if needed.
+
+
+```{r}
+#| label: download
+options(HTTPUserAgent = "uva-library-workshop(research/teaching) <your email address>")  
+
+```
+
+You might not want to scrape the entire dataset every time. So we’ll save a copy locally in `data/raw/`, then we can re-run the code without hitting the server again, while keeping the untouched original HTML to re-parse if we change our minds about anything downstream.
+```{r}
+
+# If the file does not exist, download it from the web addresses stored in `url` 
+if (!file.exists(raw)) download.file(url, raw, quiet = TRUE) 
+```
+
+Let's see what our HTML data looks like.
+```{r}
+list.files("data/raw")
+page <- read_html(raw)
+page
+```
+
+## Step 3: From HTML to a tidy table
+Now, we have a huge corpus in HTML format. To convert this into a **tidy** data (one row per caption segment, one column per content), we need to count the chunks, read what's inside the chunk, check the label and attributes for each, probe one chunk, and write a function for parsing.
+
+### 3a. Create and Count the chunks
+```{r}
+page |>
+  html_elements("li")|> # li: List Item(standard code tag used to show 
+                        # a single item inside a list on a webpage)
+  html_attr("class")|> # class: an attribute used to label elements in HTML
+  unique()
+
+#| label: parse-chunks
+chunks <- html_elements(page, "li.speaker-chunk") # Locating the speaker blocks
+length(chunks)
+```
+Looking at the list of class labels we found, most of them are just styling instructions—they control how things look on the page, not what the content actually means. Labels like `text-sm`(small text), `flex-auto`(controls flexible page layout space), `justify-end`, `rounded-md`(rounded corners), and `border-gray-300`(gray outline) are purely cosmetic. They tell the browser how to arrange and decorate the page. However, they can also help us locate specific elements in the HTML when scraping the page.  
+
+The key label for us is `speaker-chunk (item [6]).` This class identifies the container for each complete speaking turn, making it especially useful for extracting the text we want to analyze. So in the code, we told R: "go find every list item labeled speaker-chunk" using the selector li.speaker-chunk. (The li is the tag, and the .speaker-chunk means "with this class label.") R then collected all of those blocks into our chunks object.
+
+When we counted them with length(chunks), we got 457. Now that we've isolated these 457 chunks, each one becomes a row of data we can dig into: who spoke, how often, and what they said.
+
+### 3b. Read one turn closely
+`chunks[[1]]` is a single turn-box. Let's read what's inside it with two questions:
+```{r}
+#| label: probe-markup
+# Q1: The label (the first inner <li>) as raw HTML
+chunks[[1]] 
+```
+
+We can see that the text content 'SPEAKER_37' is inside the speaker-chunk, along with other HTML elements used for structure and styling.
+
+Let's extract the plain text from the first `<li>` element found inside a specific chunk in HTML. 
+- `html_element` enables us to search the specific HTML chunk;
+- `chunks[[1]], "li"`: find the first list item tag in the first chunk; 
+- `|>`: pipe operator (Take the output on the left side and pass it as the first argument to the function on the right side);
+- `html_text`: strips away all the surrounding HTML tags (e.g., `<li>`);
+```{r}
+html_element(chunks[[1]], "li") |>  html_text()
+```
+
+From 1c, we looked closely at the structure of a single speaking turn. Recall that each turn contains the speaker's name and their role(if they available) and segments. Let's examine what variables are inside the segment.
+
+```{r}
+#| label: probe-attrs
+# Q2: what attributes ("variables") does one caption line carry?
+segs1 <- html_elements(chunks[[1]], "li.segment") 
+as.character(segs1)
+html_attrs(segs1[[1]]) # extracts all attributes(variables) from seg1
+
+```
+
+Two power tools for any scraping project involve: `as.character()` shows a box's raw markup (like View Source, scoped to one box), and `html_attrs()` lists every attribute a box carries — the scraping equivalent of running `names()` on an unfamiliar data frame. 
+
+Probe 2 just told us where the timestamps live: `data-segment-start` and `data-segment-end`, in seconds.
+
+### 3c. Inspect speaker labels
+
+We have learned how to isolate each speaking turn and inspect the segments nested within a turn. Let's move to identify who the speaker is and, what their role is. As we inspect the speaker labels, we’ll see that there are a few cases we need to handle carefully.
+
+Let’s inspect the speaker labels more closely. 
+```{r}
+#| label: probe-label
+html_text2(html_element(chunks[[1]], "li"))   
+html_text2(html_element(chunks[[2]], "li")) # whole label 
+
+html_text2(html_element(html_element(chunks[[2]], "li"), "span"))  # just the <span>
+
+```
+
+In the first turn, the speaker is unidentified and no role is shown, while the second turn includes both the speaker’s name and role. But notice that the name and the role are stuck together with no space between them — `Juandiego WadeMayor, City Council`. 
+Why? The label contains two separate pieces: the name as plain text and the role inside a <span> tag. When we extract all the text at once, R joins them together because nothing marks the boundary between them. 
+
+A <span> is an inline HTML container that wraps part of a line so it can be selected, styled, or processed separately, in the form <span>content</span>. By selecting the text inside the <span>, we can extract only the role.
+
+The third probe shows how this helps us separate the name from the role. We can untangle the label in three small steps:
+
+1. read the role alone from the `<span>` → `"Mayor, City Council"`;
+2. read the whole label → `"Juandiego WadeMayor, City Council"`;
+3. delete the role text from the whole label → `"Juandiego Wade"` is what remains. We will use `str_remove()` for this later.
+
+One more probe shows the other case we must handle:
+
+```{r}
+#| label: probe-anonymous
+html_text2(html_element(html_element(chunks[[1]], "li"), "span"))
+```
+
+`NA` — anonymous `SPEAKER_NN` turns have no `<span>` at all. So the code needs an "only if a role exists" branch: `if (!is.na(role))`.
+
+Finally: does extraction work on **all** caption lines within a turn at once? Let's look at the second turn, which contains four caption lines.
+```{r}
+#| label: probe-vectorized
+
+segs2 <- html_elements(chunks[[2]], "li.segment") #extract segment from the 2nd turn
+length(segs2) # 4 caption segments in the second turn
+html_attr(segs2, "data-segment-start")
+html_text2(html_element(segs2, ".flex-grow"))
+
+```
+
+Here, the turn contains four segments. Passing all four segments to the functions at once returns four start times and four text values—one for each segment. This is **vectorization**, and it's why the final function needs no inner loop.
+
+Notice that we used "data-segment-start" to identify start time of each segment and ".flex-grow" to locate the text within each segment. As mentioned earlier, ".flex-grow" is primarily a CSS class used for page layout, but on this website it is also useful as a selector because the spoken text is wrapped inside `<div class="flex-grow"> ... </div>`. We will use selectors in the same way later.
+
+### 3d. Crystallize the probes into a recipe and apply it 457 times
+
+Everything we just learned, collected into one function: one turn-box in, one mini-table out. Then `map()` applies it to every turn and `list_rbind()` stacks the 457 mini-tables into our dataset.
+
+```{r}
+#| label: parse
+
+# Define the parsing function
+chunk <- chunks
+
+parsing <- function(chunk, turn_id) {
+  # The label = name as bare text + role in a nested <span> (if identified)
+  label <- html_element(chunk, "li")
+  role <- html_text2(html_element(label, "span"))   # NA when no <span>
+  speaker <- html_text2(label)
+  
+  # remove role from the combined speaker-role
+  if (!is.na(role)) speaker <- str_trim(str_remove(speaker, fixed(role))) 
+
+  # find all <li> elements with class "segment" in the current speaker chunk 
+  # Each element represents a timed transcript segments with start and end times.
+  segs <- html_elements(chunk, "li.segment") 
+  tibble(
+      turn_id   = turn_id,            # single values: repeat down
+      speaker   = speaker,            # all rows (turn-level facts
+      role      = role,               # copied onto each line)
+      
+      # 3b:attributes
+      start_s   = as.numeric(html_attr(segs, "data-segment-start")),
+      end_s     = as.numeric(html_attr(segs, "data-segment-end")),
+      
+      # 3c :vectorized,one per line
+      timestamp = html_text2(html_element(segs, ".flex-none")), 
+      text      = html_text2(html_element(segs, ".flex-grow")) 
+    )
+}
+
+# tibble() recycles every length-one value to match the longest columns.
+#segs[[1]]
+
+```
+* fixed() Find these exact characters, without interpreting symbols as special regular-expression instructions.
+* str_remove(string, pattern) : remove the pattern
+* str_trim() : remove any space of the words from beginning and end
+* map() is a function from the *purrr package*. It repeats a function for every item in a vector or list and collects the results. For example map(c(1,2,3), sqrt) then it returned as list (sqrt(1), sqrt(2),sqrt(3))
+
+```{r}
+segments <- map(seq_along(chunks), \(i) parsing(chunks[[i]], i - 1L)) |>
+  list_rbind()
+
+segments
+```
+
+::: {.callout-note collapse="true"}
+## Under the hood: the assembly line
+
+- `seq_along(chunks)` is `1, 2, …, 457`; `\(i) …` is shorthand for "a small function of `i`". So `map()` calls our recipe once per turn — like filling out the same paper form for each of 457 folders.
+- `i - 1L` numbers turns from 0 instead of 1 (a common convention when data may be compared across tools). One speaker turn contains multiple time-aligned text segments, and the same speaker may speak again in later turns.
+- `list_rbind()` staples the 457 mini-tables into one 3,358-row table.
+- `html_element()` (singular) returns the **first** match per box;
+  `html_elements()` (plural) returns **all** matches — that one-letter
+  difference does a lot of work in this function.
+- `html_text2()` extracts human-visible text and tidies whitespace (its
+  stricter sibling `html_text()` returns raw text nodes, untouched).
+:::
+
+## Step 4: Sanity checks
+
+Make sure to double-check what you interrogated. Do the numbers make sense?
+
+```{r}
+#| label: checks
+segments |>
+  summarise(
+    segments = n(),
+    turns    = n_distinct(turn_id),
+    speakers = n_distinct(speaker),
+    hours    = round(max(end_s) / 3600, 1),
+    words    = sum(str_count(text, "\\S+"))
+  )
+```
+
+A 6.7-hour meeting, ~46,000 words — plausible for a long council night. Now the classic first question for any meeting transcript:
+
+```{r}
+#| label: fig-speaking-time
+#| fig-height: 3.5
+speaking_time <- segments |>
+  mutate(minutes = (end_s - start_s) / 60) |>
+  summarise(minutes = sum(minutes), .by = speaker) |>
+  slice_max(minutes, n = 8)
+
+ggplot(speaking_time, aes(x = minutes, y = reorder(speaker, minutes))) +
+  geom_col(fill = "#0072B2", width = 0.7) +
+  labs(
+    title    = "Who talked the most?",
+    subtitle = "Top 8 speakers by minutes of speaking time",
+    x = "minutes", y = NULL,
+    caption  = "SPEAKER_NN = unidentified speaker (automatic diarization)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor   = element_blank())
+```
+
+::: {.callout-important}
+## Real data is messy. It's important to note that:
+
+- **Speakers are algorithm-guessed.** This transcript comes from automatic speech-to-text with *speaker diarization*, which means the process of partitioning an audio recording into homogeneous segments according to speaker identity: the algorithm labels voices `SPEAKER_16`, `SPEAKER_43`, … and the site has mapped only some of them to real names. Our #2 talker is anonymous until we do that mapping ourselves — a classic *data enrichment* task for a later stage.
+
+- **Structure hides in nested markup.** The speaker's name and role arrived glued together (`Natalie OschrinMember, City Council`) until we noticed the role lives in its own `<span>` and separated the two. Always eyeball the parsed output — this is exactly the kind of bug that silently poisons every analysis downstream.
+:::
+
+## Step 5: Save the data
+
+```{r}
+#| label: save
+
+write_csv(segments, out) 
+file.exists(out)
+list.files("data/processed")
+
+```
+
+Our pipeline so far: **URL → cached raw HTML → tidy CSV**. Raw and processed stay separate, so anyone (including future us) can rerun or audit any step.
+
+## Try it yourself
+
+1. The site lists many more meetings (see its
+   [sitemap](https://meetings.cvilledata.org/sitemap-index.xml)). Swap in a
+   different meeting's URL — does the same code work unchanged?
+2. Which single *turn* (not speaker) was the longest, in minutes? Who spoke it?
+3. `html_text2()` vs `html_text()`: rerun the parse with the latter. What
+   changes in the `text` column?
+
+## Next: Part 2 — Cleaning
+Turning this table into analysis-ready text: tokenization, stopwords, casing, and the choices that quietly shape every result you'll get later.
+
+::: {.callout-tip collapse="true"}
+## For script users
+Prefer a plain R script over a notebook? `knitr::purl("01_Text_Analysis_2026.qmd")`
+extracts exactly the code you saw here, comments included.
+:::
+
+## Subset of the data related to the ordinance 
+We observe that 
+1. comment1 : the Mayor starts mention about the pre registered public speakers. Bethany Robinson spoke for the first time at 02:43:50 and the public speech continue to until the last person Shayla Washington's comments " We need to creat more permanent affordable housing and...... the people who can help. at timestamp 03:30:58
+
+2. The second discussion is resuming at 4:55:33 until 5:24:27,
+3. lastly after offical staff's discussion is over, Zyahna Bryant start the third pharase of the comment at 5:46:57 and the last speaker Jessica jackson is completed her comment at 6:29:51
+
+** Although the ordinance discussion consisted of three distinct phases, four people (Mary Joyce Scala, Elaine Carey, Genevieve Keller, Latricia Gals) spoke about another topic during the comment periods. These comments were identified through a manual review of the transcript and will be removed from the corpus.
+
+```{r}
+segments
+```
+
+Based on these cues we will extract data and transform the data by adding a comment_phase column to show which public comment period each row belongs to.
+```{r}
+
+library(hms)
+
+class(segments$timestamp)# check the class before converting character to time
+
+public_comments <- segments |>
+  mutate(
+    timestamp_hms = as_hms(timestamp), # convert timestamp as time class
+    comment_phase = case_when(
+      timestamp_hms >= as_hms("02:43:50") &
+        timestamp_hms <= as_hms("03:30:58") ~ "Comment 1",
+
+      timestamp_hms >= as_hms("04:55:33") &
+        timestamp_hms <= as_hms("05:24:27") ~ "Comment 2",
+
+      timestamp_hms >= as_hms("05:46:57") &
+        timestamp_hms <= as_hms("06:29:51") ~ "Comment 3",
+     
+
+      TRUE ~ NA_character_
+    )
+  ) |>
+  filter(!is.na(comment_phase)) # keep non NA
+
+
+head(public_comments)
+
+# inspect
+public_comments |> count(comment_phase)
+
+public_comments |>
+  filter(!is.na(timestamp_hms)) |>
+  group_by(comment_phase) |>
+  summarise(
+    start_time = as.character(as_hms(min(timestamp_hms))),
+    start_text = text[which.min(timestamp_hms)],
+    end_time   = as.character(as_hms(max(timestamp_hms))),
+    end_text   = text[which.max(timestamp_hms)],
+    n_segment  = n(),
+    .groups = "drop"
+  )
+```
+
+Now that the comment periods are identified, we can combine the individual caption lines into complete speaking turns.The following code rebuilds the data so each row represents one full speaking turn instead of many little caption lines. 
+```{r}
+# Combine all speech turns for each speaker
+
+turns <- public_comments |>
+  arrange(comment_phase, turn_id, timestamp_hms) |>
+  group_by(comment_phase, turn_id) |>
+  summarise(
+    speaker = first(speaker),
+    role = first(role),
+    timestamp = first(timestamp),
+    start_time = min(timestamp_hms, na.rm = TRUE),
+    end_time = max(timestamp_hms, na.rm = TRUE),
+    text = str_c(text, collapse = " "), # combine text string together
+    n_segments = n(),
+    .groups = "drop"
+  )
+
+#turns |> filter(!str_detect(speaker,"\\S")) # sentences without speaker(3cases)
+
+# keep only turns that have a speaker
+turns_complete = turns |> filter(str_detect(speaker,"\\S")) 
+ 
+```
+ 
+ 
+# Combine with speaker roster
+
+We swap anonymous speakers for real names using a manually coded speaker roster, while deliberately keeping the unknowns in the dataset rather than dropping them. And people who speak off topic are dropped.
+```{r}
+# Combine the data with the manually coded speaker roster
+roster <- read_csv("speaker_roster.csv")|>
+  select("speaker", "name","stakeholder")
+
+ordinance_original <- left_join(turns_complete, roster,
+                       by = "speaker")
+
+# The transcript shows that Mary Joyce Scala, Elaine Carey, Genevieve Keller, and Latricia Gals
+# spoke about unrelated issues, such as the demolition of a historic house. Note that the transcript checking is manually done.
+ 
+off_topic = c("Mary Joyce Scala", "Elaine Carey", "Genevieve Keller", "Latricia Gals") 
+
+# Now we remove their comments from the ordinance data.
+ordinance <- ordinance_original |>
+  filter(!name %in% off_topic)
+
+
+write_csv(ordinance, "ordinance.csv")
+
+```
+
+ 

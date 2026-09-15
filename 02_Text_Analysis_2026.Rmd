@@ -1,0 +1,758 @@
+---
+title: "Text Analysis in Practice: Charlottesville's Encampment Ordinance"
+author: 
+- "Hyeseon Seo"
+- "Lucy Hong"
+date: "2026-09-11"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2 
+    theme: readable
+    df_print: paged
+---
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+ 
+# Background 
+
+On September 2, 2025, at the council meeting, the people of Charlottesville spoke about a proposed ordinance on camping and storing personal belongings on city property, such as parks and the Downtown Mall. The ordinance was proposed in response to complaints about encampments of unhoused people from nearby residents and business groups (especially those in the Downtown Mall area), but opponents argued that it would criminalize unhoused individuals without providing shelter.
+
+In the meeting, 36 people spoke during three separate discussion periods. The first and third were public comment periods, while the second focused more on the police chief’s introduction of the proposed ordinance and discussion between the police chief and the council. Altogether, this issue took about 2 hours out of the 6-hour council meeting that day. Chronologically, the three discussion periods were:
+
+1. The first public comment period
+2. Chief Kochis's presentation and the council's discussion; 
+the proposal was tabled by a 5–0 vote
+3. The second public comment period
+
+These three discussion periods are the focus of this paper. Using text-analysis methods, we examine how the different stakeholder groups spoke about the ordinance.
+
+# Text analysis
+ 
+This section begins with a relatively well-prepared dataset. If you are interested in how the data were scraped from the website and cleaned, please see the separately provided `01_Text_Analysis_2026.qmd` file.
+
+In the discussion surrounding the encampment ordinance, we can identify four different groups representing their own positions. 
+
+1. The police chief, who explains the proposed ordinance
+2. The City Council
+3. Business representatives among the public
+4. Other members of the public
+
+For convenience, we will use the term public to refer to members of the public who are not representing a business.
+This analysis aims to explore how these four groups use words differently, who interacts with others the most, and how their sentiment changes throughout the meeting. 
+
+To do this, we will use common tools in text analysis: relative word frequency, n-grams, KWIC, keyness, and sentiment analysis. Let's briefly explain each one.
+
+**Relative word frequency** shows how often each word is used relative to a group’s total word count, usually reported as a rate per 1,000 words. While relative frequency counts single words, **n-grams** count sequences of n adjacent words (e.g., a bigram is two words, such as “affordable housing,” and a trigram is three words, such as “city council meeting”). And **KWIC** (keyword-in-context) shows the context in which a keyword is used.  
+
+
+**Keyness** uses a statistical test, such as a chi-squared test, to ask whether a word appears in one group more often than we would expect by chance. It identifies words that are especially distinctive for each group. However, because our word counts are small and do not satisfy the assumption of keyness test (a random, independent sampling of words), we treat the results as exploratory rather than as inferential evidence.
+
+**Sentiment analysis**  assesses whether language tends to be positive or negative by matching words to a sentiment dictionary, or lexicon, that classifies words as positive or negative, and then comparing the balance of those words.
+
+If you're new to text analysis, skim the terminology below before we begin.
+ 
+**Terminology**
+
+- **Token**: a single unit of text, usually one word.
+- **Tokenizing**: splitting a piece of text into tokens.
+- **Stopwords**: extremely common words such as "the", "and" and "of" that carry little meaning and are usually dropped.
+- **Lexicon**: a dictionary that labels words (for example, as positive or negative).
+- **Document-feature matrix (dfm)**: a table with one row per document and one column per word, holding word counts.
+
+# 1. Meet the data
+ 
+Throughout the process, you will see the necessary libraries listed at the top of the code block. If you don't have these packages, install them once using `install.packages()`. 
+
+```{r }
+library(dplyr)     # data wrangling
+library(tidyr)     # reshaping (pivot_longer, etc.)
+library(stringr)   # string helpers
+library(ggplot2)   # plots
+library(readr)     # read csv
+
+speeches <- read_csv("ordinance.csv") 
+ 
+# The first few rows of the data
+head(speeches)
+```
+One row of the data is one turn, which is one block of speech by one person without interruption. So if a speaker has many turns, it means the speaker was highly engaged in the back-and-forth. Let's see what each column means.
+
+
+
+| Variable         | Description                                                                                                                             |
+|------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| `comment_phase`  | which part of the meeting the speech is from: Comment 1 and Comment 3 are public comment periods, and Comment 2 is the police chief's presentation and council discussion phase |
+| `turn_id`        | a unique id for each turn (one uninterrupted block of speaking before another person speaks) |
+| `speaker`        | who spoke (a name or an automatic voice label like `SPEAKER_43`) |
+| `name`           | the speaker's name |
+| `stakeholder`    | the group we compare on: public, business, police_staff, or council |
+| `start_time`     | the start time of the speech on that row, measured in seconds |
+| `end_time`       | the end time of the speech on that row, measured in seconds |
+| `text`           | the raw text data |
+
+
+### Clean up: Remove the unknown stakeholder and replace NA in names to speaker
+
+Since the main analysis is based on stakeholder groups, we exclude the unidentified stakeholders. Now we have 36 speakers in total. The name column comes from speakers' self-introductions. When a speaker didn't give a name, we use their speaker identifier (e.g. SPEAKER_45) instead.
+
+```{r }
+
+# Remove unknown stakeholder and replace NA in names to speaker
+
+speeches <- speeches |> 
+  filter(!stakeholder =="unknown")|>
+  mutate(
+  name = case_when(
+    is.na(name)                              ~ speaker,
+    str_detect(name, regex("unidentified", ignore_case = TRUE)) ~ speaker,
+    TRUE                                     ~ name
+  )
+)
+
+ 
+```
+
+
+# 2. Descriptive Analysis
+ 
+### Summary of the number of speakers, turns and words for each stakeholder group
+```{r }
+
+# Count the words for each turn
+speeches <- speeches |> mutate (
+  word_count = str_count(text, boundary("word"))
+)
+
+# Count the total number of words spoken by the speakers in each stakeholder group
+group_summary <- speeches |>
+  group_by(stakeholder) |>
+  summarise(speakers     = n_distinct(speaker), # count the number of unique speakers
+             turns     = n(),  
+            turns_per_person = turns/speakers,
+            total_words   = sum(word_count),
+            median_words  = median(word_count)) |>
+  arrange(desc(total_words))
+
+group_summary
+
+```
+
+The public group had the most speakers (25) and the highest total word count (about 10,000), so they accounted for most of the speaking overall. With 1.60 turns per person and a median of about 323 words per turn, we can infer that public speakers generally spoke only once or twice, with relatively long statements. The council's speaking pattern is different: they had the most turns (46 across 5 councilors) but a median of only 16 words per turn, reflecting short, back-and-forth exchanges. Police and staff showed a similar pattern, with 21 turns and a median of 13 words. However, the business group looked more like the public, with few turns but relatively long statements.
+
+
+### Faceted horizontal bar chart: Comparing Stakeholder Group Participation
+
+The faceted horizontal bar chart makes three things clear: the public had the most speakers, council members took the most turns per person, and the public and business groups spoke at greater length than the others.
+```{r}
+
+group_summary |>
+  select("stakeholder", "speakers", "turns_per_person",  "median_words")|>
+  mutate(stakeholder = factor(stakeholder, 
+                              levels = c("business", "police_staff", "council", "public"))) |>
+  pivot_longer(c(speakers, turns_per_person, median_words),
+               names_to = "measure", values_to = "value") |> # converting to a long format 
+  mutate(measure = factor(measure, # for setting the panel display order
+                          levels = c("speakers", "turns_per_person",  "median_words"))) |>
+  ggplot(aes(value, stakeholder, fill = stakeholder)) +
+  geom_col(show.legend = FALSE, width = 0.6) +
+  geom_text(aes(label = value), hjust = -0.15, size = 3) +
+  facet_wrap(~ measure, scales = "free_x") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Stakeholder groups at a glance", x = NULL, y = NULL)
+
+```
+
+
+We can break down the group level into the individual level and see who talked the most and interacted with others the most.
+
+
+### Who spoke the longest
+
+We calculate how long each turn lasted by subtracting the start time from the end time and converting seconds to minutes, then add up those minutes for each person to get their total speaking time. Let's see the top five.
+
+```{r }
+ 
+speaking_time <- speeches |>
+  mutate(minutes = (end_time - start_time) / 60) |>
+  summarise(minutes = round(sum(minutes, na.rm = TRUE)), .by = c(name, stakeholder)) |>
+  slice_max(minutes, n = 5, with_ties = FALSE)
+ 
+ggplot(speaking_time, aes(x = minutes, y = reorder(name, minutes), fill=stakeholder )) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label= round(minutes)), hjust = 2, size = 2.5) +
+  labs(
+    title    = "Who spoke the longest?",
+    x = "minutes", y = NULL
+  ) 
+
+```
+ 
+Police Chief Michael Kochis spent the longest time speaking (13 minutes). This is because he introduced the ordinance at length and answered questions from the council during the second phase.
+
+
+### Who interacted with others the most and which group they represent? 
+
+ We count how many turns each speaker had, then keep only those with more than 2 turns.
+ 
+As expected, Mayor Juandiego Wade interacted with others the most, followed by Police Chief Michael Kochis. Members of the public also interacted a fair amount, but the business representative did not (likely because only two people spoke for that group).
+```{r }
+ 
+interactions <- speeches |>
+  group_by(name, stakeholder) |>
+  summarise(interaction = n_distinct(turn_id), .groups = "drop") |>
+  filter(interaction > 2)
+
+ggplot(interactions, 
+       aes(x = interaction, y = reorder(name, interaction), 
+           fill = stakeholder)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = interaction), hjust = 2, size = 3) +
+  labs(
+    title = "Who interacted with others the most?",
+    x = "Number of turns",
+    y = NULL,
+    fill = "Stakeholder"
+   )  
+
+```
+
+
+# 3. Relative word frequency 
+
+Raw word counts can be misleading, because a speaker who talks for ten minutes will out-count a speaker who only gets to talk for three minutes. 
+
+To make the groups more comparable, we first tokenize each speech by breaking it into individual words using the `unnset_tokens()` function from the `tidytext` package, then remove common stopwords^[The `tidytext` package provides access to general stopword dictionaries, and we can also create our own list of stopwords and exclude them those words from the analysis.] such as “the,” “a,” and “and” that carry little meaning on their own. We keep the more meaningful words and divide each group’s counts by its total number of words to calculate rates per 1,000 words.  
+
+```{r}
+
+library(tidytext)  # tokenizing + sentiment lexicon
+ 
+data("stop_words") # Setting the stopwords
+# stop_words 
+filler <- c("biv", "john") # custom stopwords not included in the standard list
+
+tokens <- speeches |>
+  select(stakeholder, text) |>  # keep stakeholder 
+  unnest_tokens(output = word, input = text, token = "words") |>  # split a column into tokens, one row each
+  anti_join(stop_words, by = "word") |>              # drop stop words rows
+  filter(!word %in% filler) |>                       # drop customized stop words 
+  filter(str_detect(word, "^[a-z]+$"), nchar(word) > 2)  # drop numbers, tiny tokens
+
+head(tokens)
+
+```
+You can see the text has been split into one word per row, each labeled with its stakeholder. Now we can count the words within each stakeholder using count(). One note here: once you read the output, you'll notice some word variations, such as 'visitor' and 'visitors', that you may want to combine into one so the counts accurately reflect each word. That process is handled manually with the `case_when()` function.
+
+After counting each distinct word within a group, we convert the counts to a rate by calculating relative word frequencies per 1,000 words. Then we extract the top 10 words for each group using `slice_max()` from the `dplyr` package.
+
+We do this manually with `case_when()` here, but you could also use stemming `(SnowballC::wordStem())` to collapse variants automatically, at the cost of less precise, since stemming can produce clipped, non-word stems, for example, 'families' becomes famili, policies becomes 'polici'.
+ 
+```{r}
+
+# Collapse the word variation (e.g.,plurals) into a single base form.
+rel_freq <- tokens |> 
+  mutate(word = case_when(
+    word %in% c("business", "businesses")   ~ "business",
+    word %in% c("visitor", "visitors")      ~ "visitor",
+    word %in% c("family", "families")       ~ "family",
+    word %in% c("owner", "owners")       ~ "owner",
+    TRUE                                    ~ word
+  )) |>
+  count(stakeholder, word, name = "n") |>    # count word frequency within each stakeholder; store the count in a column named "n"
+  group_by(stakeholder) |>                    # per stakeholder 
+  mutate(rate_per_1k = round(1000 * n / sum(n), 1)) |>
+  slice_max(rate_per_1k, n = 10, with_ties = FALSE) |>    # extract the top 10 highest-frequency
+  ungroup()
+
+head(rel_freq)
+
+```
+
+Let's visualize these keywords by stakeholder group.
+
+```{r rel-freq-plot, fig.width=9, fig.height=7}
+
+rel_freq |>
+  mutate(word = reorder_within(word, rate_per_1k, stakeholder)) |> 
+  ggplot(aes(rate_per_1k, word, fill = stakeholder)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = rate_per_1k), hjust = 2,size = 3)+
+  scale_y_reordered() +
+  facet_wrap(~ stakeholder, scales = "free_y") +
+  labs(title = "Most frequent words by stakeholder",
+       subtitle = "Rate per 1,000 words",
+       x = "Rate per 1,000 words", y = NULL) 
+  
+```
+
+The business group (though recall it has only two speakers) talked about business, mall, downtown, city and visitor. The most used words in the police_staff group were ordinance, city, and property, followed by personal, and notice-terms relating to the ordinance itself. The public group spoke about people the most and also homeless and housing as well. Among the council's frequently used words, questions, decision or terms, may relate to the procedural side of the meeting itself.
+
+
+# 4.N-grams: Beyond single words
+
+You might have noticed that some single words are more meaningful when paired.
+For instance, "downtown" and "mall" together point to the place at the center of this
+whole debate. Likewise, "homeless" and "people" are frequently used together in the context of this meeting. 
+Counting two-word sequences (called **bigrams**, and three-word ones
+**trigrams**) capture these word parings. 
+
+The idea is to take every adjacent pair (or triple) of words in the next and count how often each one appears. The adjacent bigrams, so each word (expect the first and last) shows up in two different bigrams. For example, the sentence "the downtom mall was busy" produces the bigrams "the downtowm", "downtown mall", "mall was", "was busy". We then count these across all the text to find the most frequent pairings. However since we remove stopwords (e.g, the, was), the pairs containing them drop out. in our example, only "downtown mall" is left, because every other adjacent pair includes a stopword.
+
+The recipe is the same tokenizing we just did, with one different argument: now our token is not single "words" but "ngrams", pairing two adjacent words. Then we separate the paired words again and drop the pair if either word is a stopword. The order matters here. If you dropped the stopwords first and then paired the adjacent words, the result would not be right: removing stopwords first connects words that were never actually next to each other, creating bigrams that never occurred in the original text (e.g., in we walk to the store, 'walk store' shouldn't be paired!).
+
+
+### - Bigrams
+```{r bigrams}
+
+bigrams <- speeches |>  
+  select(stakeholder, text) |>  
+  unnest_tokens(output = bigram, input = text, token = "ngrams", n = 2) |>  # two adjacent words at a time  
+  separate(bigram, c("w1", "w2"), sep = " ") |>             # split so we can filter
+  filter(!w1 %in% stop_words$word, !w2 %in% stop_words$word, # remove the stop words
+         !w1 %in% filler,          !w2 %in% filler,
+         str_detect(w1, "^[a-z]+$"), str_detect(w2, "^[a-z]+$")) |> # keep only lower case pair
+  unite(bigram, w1, w2, sep = " ") |>                       # glue the survivors back
+  count(stakeholder, bigram, sort = TRUE) |>
+  group_by(stakeholder)|>
+  reframe(bigram=bigram,n=n, word_rate_within_group = round(n/sum(n),2) ) 
+ 
+# top5
+bigrams_top5 <- bigrams |>
+  group_by(stakeholder) |>
+  slice_max(n, n = 5, with_ties = FALSE) |>  
+  ungroup()
+ 
+bigrams_top5 
+
+```
+
+
+Horizontal bar chart faceted by stakeholder.
+```{r}
+
+bigrams_top5 |>
+  mutate(word_rate = n / sum(n),
+         word = reorder_within(bigram, n, stakeholder)) |>  # reorder_within() 
+  # prevents words from blending together across different stakeholders
+  ggplot(aes(word_rate, word, fill = stakeholder)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = scales::percent(word_rate_within_group, accuracy = 0.1)),
+            hjust = -0.15, size = 2.8, show.legend = FALSE) +
+  scale_y_reordered() +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.25))) +
+  facet_wrap(~ stakeholder, scales = "free_y") +
+  labs(title = "Most frequent words by stakeholder group",
+       x = "proportion of words", y = NULL) +
+  theme_minimal(base_size = 11)
+
+
+```
+The phrases are more informative than single words. Council speaks of "grants pass" (the court case) or pic count^["pic count " is a transcription error for "PIT count" (Point-in-Time count).
+The Point-in-Time (PIT) count is an annual count of people experiencing homelessness on a single night, mandated by HUD (the U.S. Department of Housing and Urban Development). Communities conduct it (usually in late January) to tally both sheltered and unsheltered homeless individuals, and the results drive federal funding and local policy.], police_staff of "personal property" and "law enforcement", the public of "affordable housing" and the "downtown mall". Notice that the smallest group, business, has almost no repeated pairs (most appear once), because two speakers simply do not say the same phrase twice. Bigrams sharpen the
+picture, but they also grow sparse quickly, so they are more trustworthy for the large groups than the tiny ones.
+
+
+### - Trigrams
+
+Some phrases are even clearer with consecutive three words. Why not try trigrams! The same logic applied for 3 adjanct words.  
+```{r}
+
+trigrams <- speeches |> 
+  select(stakeholder, text) |>
+  unnest_tokens(trigram, text, token = "ngrams", n = 3) |>   # three adjacent words at a time
+  separate(trigram, c("w1", "w2", "w3"), sep = " ") |>        # split so we can filter
+  filter(!w1 %in% stop_words$word, !w2 %in% stop_words$word, !w3 %in% stop_words$word,  # remove stop words
+         !w1 %in% filler,          !w2 %in% filler,          !w3 %in% filler,           # remove fillers
+         str_detect(w1, "^[a-z]+$"), str_detect(w2, "^[a-z]+$"), str_detect(w3, "^[a-z]+$")) |>
+  unite(trigram, w1, w2, w3, sep = " ") |>                    # combine all remaining words into trigrams
+  count(stakeholder, trigram, sort = TRUE) |>
+  group_by(stakeholder) |>
+  mutate(word_rate_within_group = round(n / sum(n), 2))|>   # rate within each group
+ ungroup()
+
+
+trigrams |>
+  filter(n >= 2) |>
+  arrange(stakeholder, desc(n))
+
+business = trigrams |> filter (stakeholder =="business")
+
+```
+Eventhough we might lose some short phrases, trigrams can give more context than single words or bigrams alone. For example,
+"Deeply affordable housing" is a specific term in housing policy^[Regular "affordable housing" is usually defined relative to Area Median Income (AMI), often serving households up to ~80% AMI. "Deeply affordable housing" refers to housing targeted at the lowest-income households — typically at or below 30% AMI (sometimes 50%) can afford to live somewhere].
+
+Since the business group has only two people, there shouldn't many repeated words, especially trigams. But for the other groups we can observe some meaningful contrast.
+
+The public frequently mentioned housing solutions and experience of homelessness ("deeply affordable housing," "low barrier shelter," "west haven residents", "people experiencing homelessness"), while council in more procedural or administrative terms, such as "de facto strategy," "folks expressing concerns," "homeless services providers". Police_staff used organizational or operational words such as "deputy city manager," "designated city personnel"  
+
+
+**From adjacency to meaning: where this goes next.** 
+Bigrams and trigrams capture local adjacency but miss related words spaced far apart in a sentence and themes that run across an entire speech. Topic models (e.g., LDA) and word embeddings (word2vec, GloVe) go further: topic models find themes across documents regardless of word position, while embeddings capture semantic similarity between words that never sit next to each other. Descriptive n-gram analysis is a fair "honest first step" — transparent and interpretable, if limited.
+
+
+# 5. Keyness (an inferential measure)
+Relative frequency describes; it does not test. Keyness asks a sharper question: is a word more common in one group than in all the others combined, more than we would expect by chance?
+
+Under the hood it is a chi-squared test on a two-way count table, run once per word. Keyness reports a chi-squared value and, if you ask, a p-value. But the test counts only the words, not speakers. When a group has only a few speakers, its 'distinctive' words really come from one or two people and don't represent the group. Our business group, with only two speakers,is exactly this case. So here we treat keyness as exploratory rather than inferential, since our goal is just to introduce the method.
+
+To run this, we transform the raw transcript text into a numeric table of word counts, then measure which words are most distinctive to each stakeholder.
+
+The process has three stages with using `quanteda package`. First, `corpus()` loads the raw text into a quanteda corpus object. Second, we tokenize it — splitting the text into individual words while cleaning out noise: stripping punctuation and numbers, converting everything to lowercase, removing stopwords(both the standard English list and our own list of terms, which we named it filler), and dropping any word shorter than 3 characters. Third, `dfm()` turns the cleansed tokens into a document-feature matrix (dfm), a table with one document per row, one unique word per column, and each cell holding that word's frequency in that document. Finally, we collapse the 110 individual documents into one row per stakeholder group using `dfm_group()` function. This aggregates the counts so we can see how often each word was used by each group as a whole, which the keyness step then compares.
+ 
+
+```{r keyness}
+library(quanteda)
+library(quanteda.textstats) # textstat_keyness() function
+
+dfm_by_group <- corpus(speeches, text_field = "text") |>
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower() |> 
+  tokens_remove(c(stopwords("en"), filler)) |>
+  tokens_select(min_nchar = 3) |>
+  dfm() |> # build a document feature matrix from the tokens
+  dfm_group(groups = speeches$stakeholder) # group dfm by stakeholder
+
+
+dfm_by_group
+```
+The document-feature matrix aggregated by group consists of 4 rows, one per stakeholder group, and 2,293 columns, one per token (feature), with each cell showing that word's total frequency within that group. We then compare a group's word frequencies against those of the other groups using the `textstat_keyness()`function. The function scores all 2,293 words, but we show only the top5 words most distinctive (the highest chi-square) to the business group.
+
+```{r}
+# Keyness for the business group: top5
+textstat_keyness(dfm_by_group, target = "business" , measure = "chi2") |>
+  head(5)  # display the first 5 words
+
+```
+
+The output includes the frequency of each word (feature) in the target group (n_target) — here the business group — and its frequency across all other groups (n_reference). The chi-square^[For a detailed calculation of chi-square in keyness analysis, see Chen (2026)] value measures how strongly the word's usage is associated with the target group: how far the observed counts depart from what we'd expect if the word were used at the same rate inside and outside the group. A higher chi-square means the word is more distinctive to that group. The p-value indicates whether that association is statistically significant, but recall our data isn't well suited to this test.
+
+We observe that “visitors,” “mall,” and “families” are used more frequently by the business group than by the other groups. 
+
+Now we repeat the same analysis, targeting each group in turn, and combine the results into one table. The `map_dfr(groups, \(g) ...)` function from the `purrr` package runs `textstat_keyness()` once for each group — the group names are extracted using `docnames()` — then binds all results by row into a single data frame.
+
+Within each run, `transmute()` renames the columns to clearer labels and keeps only the variables of interest. It might be good to order by chi-square value, the highest first.
+```{r}
+# Top keywords for each group, stacked into one table.
+groups <- docnames(dfm_by_group) # return the names of the groups
+
+keyness_all <- purrr::map_dfr( groups, \(g) 
+                               textstat_keyness(dfm_by_group, target = g, measure = "chi2") |>
+    head(5) |>
+    transmute(stakeholder = g, word = feature, chi2 = round(chi2, 1),
+              in_group = n_target, elsewhere = n_reference) )
+
+keyness_all |> arrange(-chi2) # decent order by chi2
+
+```
+
+Police_staff more use such as “property,” “notice,” “personal,”  than other groups, while public frequently use words such as “people” and “homeless".
+
+
+# 6. KWIC (Keyword-in-context) : Read behind the numbers
+
+Every measure above is a summary, and a summary can mislead. The last habit when you do text analysis, and the
+most important one, is to read the actual text behind the numbers. **KWIC (keyword-in-context)** fits that purpose well, pulling up each use of a word with the words around it.
+
+Let's compare how the word 'homeless' was used by 'business' and 'public' group. We pull the text from  both group, and 
+select the word 'homeless' and set the window = 16, which returned with 16 words before and after the 'homeless'
+```{r}
+# select text from each stakeholder
+
+business_text = speeches |> filter( stakeholder =="business")
+public_text = speeches |> filter( stakeholder =="public")
+
+# business
+corpus(business_text, text_field = "text") |>
+  tokens() |>
+  kwic(pattern = "homeless", window = 16) |>
+  as.data.frame() |>
+  select(keyword, pre, post)  
+
+# public
+corpus(public_text, text_field = "text") |>
+  tokens() |>
+  kwic(pattern = "homeless", window = 20) |>
+  as.data.frame() |>
+  select(keyword, pre, post)  
+
+```
+
+A contrast is that one of the two business speakers framed homelessness as a problem for their business, while public speakers framed it as a matter of homeless people's own hardship and lived experience.
+
+"Despite years of efforts and hundreds of millions of dollars spent towards programs and 	shelters, their crisis only worsened... until ordinance were put in place , Charlottesville is..." In this framing, the 'problem' is not homeless people's hardship but their presence in public space.
+
+The public spoke about the 'problem' as the homeless person experiences it — lack of housing, the difficulty of their situation. For example : "simply spending a night out on a grassy lawn claiming to try to grasp what it is like to be", "it's pouring buckets of rain , where are they supposed to go ? The plan for the people who are" "want a homeless shelter . I live in Fifeville . I would love to have a" " We're not going to make people criminal just because they don't have a house "
+  
+
+
+# 7. Sentiment Analysis (measurement by dictionary)
+
+### - Positive vs. negative words by stakeholder
+Lastly, let's explore the sentiment throughout the speeches. The simplest way to characterize sentiment is whether a word is positive or negative. Researchers have built multiple dictionaries that label thousands of words by their sentiment value. Here we use Bing Liu's lexicon ('bing'), created by Minqing Hu and Bing Liu, which contains around 6,800 words each labeled as either positive or negative. Note that words with no sentiment value aren't in the list, so they drop out when we join it to our tokens.
+
+The code below matches each spoken word against the lexicon, keeps only the words that appear in it, and then counts how many positive and negative words each stakeholder used. Finally, it converts those counts into shares (proportions) so groups can be compared on the same scale regardless of how much each one spoke.
+
+```{r sentiment}
+bing <- get_sentiments("bing")  # ~6,800 words labeled positive / negative
+
+sentiment <- tokens |>
+  inner_join(bing, by = "word") |>           # keep only words in the lexicon
+  count(stakeholder, sentiment) |>
+  group_by(stakeholder) |>
+  mutate(proportion = round(n / sum(n), 2)) |>
+  ungroup()
+
+sentiment
+ 
+```
+
+
+```{r }
+sentiment |>
+  ggplot(aes(x = stakeholder, y = proportion, fill = sentiment)) +
+  geom_col(position = "fill") +
+  scale_fill_manual(values = c(negative = "#D55E00", positive = "#0072B2")) +
+  labs(title = "Positive vs negative word proportion, by group",
+       x = NULL, y = "proportion of sentiment-bearing words")  
+```
+
+
+The result suggests that the business group used positive and negative words at similar rates, while the other groups used negative words more often. However, note that these results can differ depending on which dictionary is used (e.g., syuzhet)^[ The syuzhet package assigns sentiment values to words in a more nuanced way. While the Bing dictionary classifies each sentiment word as either negative (−1) or positive (+1), the syuzhet dictionary covers more words and captures differences in sentiment intensity by assigning fractional weights. For example, in the sentence “This morning I woke up with a strange feeling that I could fly,” bing returns a sentiment score of −1, while syuzhet returns −0.5. This is because bing assigns a value only to the word “strange” (−1), whereas syuzhet assigns values to both “strange” (−0.5) and “feeling” (+0.25)]
+
+
+### - Sentiment rate by stakeholder
+
+One might wonder whether some groups use more sentiment-bearing words than others.
+
+```{r}
+
+sentiment_rate <- tokens |>
+  group_by(stakeholder) |>
+  summarise(total_words     = n(),
+            sentiment_words  = sum(word %in% bing$word),
+            rate_sentiment   = round( sentiment_words / total_words,2),
+            .groups = "drop")
+
+sentiment_rate
+    
+```
+
+The rate of sentiment-bearing words is somewhat higher for the public than for the council (0.13 vs. 0.08) — consistent with the persuasive function of public comment, while council members are expected to stay neutral and stick to procedure. However, the overall, sentiment-bearing words make up a modest share of speech in both groups (8–13%).
+
+
+### - Sentiment across turns: council vs. public
+
+Now let's examine how the sentiment changes over the meeting. Since the business and police-staff groups have too few sentiment words, we will focus on the sentiment of the public and council, along with the meeting as a whole. 
+
+Note we now use `get_sentiment()` from `syuzhet` package, not `get_sentiments()` from `tidytext` package. `get_sentiments()` gives a word–label dictionary that we join and count ourselves; `get_sentiment()` reads each turn's text and returns one summed score per turn — which is what we need to plot sentiment across turns.  
+
+```{r}
+ library(syuzhet)
+# subset the turns for each stakeholder 
+public_text = speeches |> filter(stakeholder == "public")
+council_text = speeches |> filter(stakeholder == "council") 
+
+# sentiment score per turn: whole meeting and each stakeholder
+scores     <- get_sentiment(speeches$text, method = "bing")   # whole meeting (110 turns) 
+s_council  <- get_sentiment(council_text$text, method = "bing") # 46 turns
+s_public   <- get_sentiment(public_text$text, method = "bing") # 40 turns
+
+# whole meeting: with a smoothed 
+ggplot(mapping = aes(x = seq_along(scores))) + 
+  geom_line(aes(y = scores,  color = "bing")) +
+  geom_smooth(aes(y = scores), se = FALSE, span = 0.3, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed") + 
+  labs(title = "Sentiment over the meeting",
+       x = "Turn number (chronological order)", y = "Sentiment score")
+
+# sentiment across turns spoken by the public
+ggplot(mapping = aes(seq_along(s_public), s_public)) +
+  geom_line(alpha = 0.4) +
+  geom_smooth(se = FALSE, span = 0.3) + 
+  ylim(-5,5) +
+  geom_hline(yintercept = 0, linetype = "dashed")
+
+# sentiment across turns spoken by the council
+ggplot(mapping = aes(seq_along(s_council), s_council)) +
+  geom_line(alpha = 0.4) +
+  geom_smooth(se = FALSE, span = 0.3) +
+  ylim(-5,5) +
+  geom_hline(yintercept = 0, linetype = "dashed")
+
+```
+
+In general, the meeting's tone isn't very emotional, but the council group is clearly much flatter and more monotone than the public group
+
+### - Sentiment by comment phase
+
+How the sentiment changes over the comment phase. 
+```{r}
+
+phase_sentiment <- speeches |> 
+  mutate(sentiment_score = get_sentiment(text, method = "bing")) |>
+  group_by(comment_phase) |>
+  mutate(turn_in_phase = row_number()) |> # turn position within phase
+  ungroup()
+
+ggplot(phase_sentiment, aes(turn_in_phase, sentiment_score)) +
+  geom_line(alpha = 0.4) +
+  geom_smooth(se = FALSE, span = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(~ comment_phase, ncol = 2, scales = "free_x") +
+  coord_cartesian(ylim = c(-18, 18)) +
+  labs(title = "Sentiment through each comment phase",
+       x = "Turn within phase", y = "Sentiment score")
+
+```
+
+Recall that Comment 1 and Comment 3 were spoken mostly by the public, while the Comment 2 phase consists of the chief's introduction of the ordinance and the councilors' discussion of it. We can see that their language is flatter and more neutral compared with the public speeches.
+
+
+## What we found, and how far to trust it
+
+ Across the analysis, the four groups talk about the same ordinance in different language: law and property from police_staff, commerce from business, procedure and administration from council, and housing and lived experience from the public. Relative frequency, keyness and KWIC agree on these contrasts, and sentiment adds another: the council's tone is notably flatter and more monotone than the public's. One caution on that last measure — it only tracks whether individual words are positive or negative, not the position a speaker actually took, so 'negative' words don't necessarily mean opposition.  And all of this comes from small groups, so the right verb is 'describes', not 'proves'.
+ 
+ 
+# ***Bonus — Fun Activity
+## [The Secret Life of Pronouns](https://www.secretlifeofpronouns.com) by James Pennebaker
+
+James W. Pennebaker is a psychology professor, the developer of the text-analysis tool LIWC, and the author of The Secret Life of Pronouns. In the book, he argues that pronouns like 'I' and 'we' can signal different kinds of psychological and social positioning. “I” tends to place the speaker more directly inside the thought, feeling, or experience: I feel, I believe, I’m afraid. That can make the statement feel more personally owned and exposed.
+“We” works differently. It may distribute or soften personal responsibility and emotional exposure by shifting attention from the individual to a group. So instead of saying, “I’m worried about what happened,” saying “We’re worried about what happened” can create some psychological distance between the individual speaker and the emotion. And also deflect responsibility away from the speaker.
+
+Let's use our data to see whether 'I' and 'we' usage differs across stakeholder groups in the way Pennebaker's argument suggest.
+
+### I vs. We
+```{r message=FALSE}
+
+pronoun_sets <- list(
+  i_words  = c("i", "me", "my", "mine", "myself"),
+  we_words = c("we", "us", "our", "ours", "ourselves")
+)
+
+func_words <- speeches |>
+  unnest_tokens(word, text) |>              # do NOT anti_join stop_words here
+  group_by(stakeholder) |>
+  summarise(
+    total     = n(),
+    i_rate    = round(1000 * sum(word %in% pronoun_sets$i_words)  / total,2),
+    we_rate   = round(1000 * sum(word %in% pronoun_sets$we_words) / total,2),
+    .groups = "drop"
+  )
+
+func_words
+```
+
+The results align with Pennebaker’s findings! The public used more ‘I’ words than the business (28 vs. 13), and the pattern for ‘we’ words was reversed: the public used fewer ‘we’ words than the business (17 vs. 31).
+ 
+
+### Noun vs. Verb 
+
+Pennebaker also connects nouns and verbs to two different ways of processing the world: categorical and dynamic thinking. Nouns reflect categorical thinking, which focuses on things, takes, and categories. Higher noun usage relate to a more analytical, organized, task oriented and emotionally detached style of thinking.
+
+Verbs, in contrast, reflect dynamic thinking, which focuses on actions, change, and events over time. Higher verb use tends to be associated with a more dynamic and narrative style of thinking, emphasizing actions and how events unfold over time.
+
+```{r message=FALSE}
+#install.packages("udpipe")
+file.remove("english-ewt-ud-2.5-191206.udpipe")  # run once in console
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+library(udpipe) 
+ 
+ud_model <- udpipe_download_model(language = "english-ewt")
+ud_model <- udpipe_load_model(ud_model$file_model)
+
+# 2. Annotate every turn's text with part-of-speech tags
+#    doc_id lets us join back to stakeholder afterward
+annotated <- udpipe_annotate(
+  ud_model,
+  x      = speeches$text,
+  doc_id = seq_len(nrow(speeches))       # row index as document id
+) |>
+  as.data.frame()
+
+```
+
+```{r}
+
+# 3. Attach stakeholder back on via the row index
+annotated <- annotated |>
+  mutate(row = as.integer(doc_id)) |>
+  left_join(speeches |> mutate(row = row_number()) |> select(row, stakeholder),
+            by = "row")
+
+# 4. Noun rate per stakeholder (per 1,000 tagged tokens)
+#    upos == "NOUN" is common nouns; add "PROPN" to include proper nouns (names, places)
+noun_rate <- annotated |>
+  filter(!is.na(stakeholder)) |>
+  group_by(stakeholder) |>
+  summarise(
+    total       = n(),
+    noun_rate   = 1000 * sum(upos == "NOUN")            / total, 
+    verb_rate   = 1000 * sum(upos == "VERB")            / total,
+    .groups = "drop"
+  ) |>
+  arrange(desc(noun_rate))
+
+noun_rate
+```
+ 
+
+```{r}
+pennebaker <- func_words |>         # your i_rate / we_rate table
+  left_join(noun_rate |> select(stakeholder, noun_rate, verb_rate),
+            by = "stakeholder")
+pennebaker
+
+```
+
+Verb usage was fairly consistent across stakeholder groups, ranging from roughly 122 to 128 per 1,000 words, while noun usage varied much more widely, from about 148 for the council to 233 for the business group.
+We see that, although the business group included only two speakers, its language was highly noun-dense and relatively impersonal.
+ 
+```{r include=FALSE}
+#install.packages("report")
+library(report)
+report(sessionInfo())
+
+```
+
+## R session details
+
+Analyses were conducted using the R Statistical language (version 4.5.1; R Core Team, 2025) on macOS Tahoe 26.6.2, using the packages dplyr (version 1.1.4; Wickham et al., 2023), tidyr (version 1.3.1; Wickham et al., 2024), stringr (version 1.5.1; Wickham, 2023), readr (version 2.1.5; Wickham et al., 2024), ggplot2 (version 4.0.2; Wickham, 2016), tidytext (version 0.4.3; Silge & Robinson, 2016), quanteda (version 4.3.1; Benoit et al., 2018), quanteda.textstats (version 0.97.2; Benoit et al., 2018), syuzhet (version 1.0.7; Jockers, 2015), and udpipe (version 0.8.16; Wijffels & Straka, 2026).
+ 
+## Acknowledgment
+
+The author used AI tools (Claude and ChatGPT) to assist with code drafting, debugging, and editing. All output was reviewed and edited by the author, who takes full responsibility for the content.
+
+
+## Reference
+
+Benoit, K., Watanabe, K., Wang, H., Nulty, P., Obeng, A., Müller, S., & Matsuo, A. (2018). quanteda: An R package for the quantitative analysis of textual data. Journal of Open Source Software, 3(30), 774. https://doi.org/10.21105/joss.00774
+
+Chen, A. C.-H. (2026). Keyword analysis. In Corpus linguistics [Lecture notes, ENC2036]. National Taiwan Normal University. https://alvinntnu.github.io/NTNU_ENC2036_LECTURES/keyword-analysis.html
+
+Jockers, M. L. (2015). Syuzhet: Extract sentiment and plot arcs from text. https://github.com/mjockers/syuzhet
+
+Jockers, M. L., & Thalken, R. (2020). Text analysis with R (2nd ed.). Springer. https://doi.org/10.1007/978-3-030-39643-5
+
+Pennebaker, J. W. (2011). The secret life of pronouns: What our words say about us. Bloomsbury Press.
+
+R Core Team. (2025). R: A language and environment for statistical computing. R Foundation for Statistical Computing. https://www.R-project.org/
+
+Silge, J., & Robinson, D. (2016). tidytext: Text mining and analysis using tidy data principles in R. Journal of Open Source Software, 1(3). https://doi.org/10.21105/joss.00037
+
+Wickham, H. (2016). ggplot2: Elegant graphics for data analysis. Springer-Verlag New York.
+
+Wickham, H. (2023). stringr: Simple, consistent wrappers for common string operations (R package version 1.5.1). https://CRAN.R-project.org/package=stringr
+
+Wickham, H., François, R., Henry, L., Müller, K., & Vaughan, D. (2023). dplyr: A grammar of data manipulation (R package version 1.1.4). https://CRAN.R-project.org/package=dplyr
+
+Wickham, H., Hester, J., & Bryan, J. (2024). readr: Read rectangular text data (R package version 2.1.5). https://CRAN.R-project.org/package=readr
+
+Wickham, H., Vaughan, D., & Girlich, M. (2024). tidyr: Tidy messy data (R package version 1.3.1). https://CRAN.R-project.org/package=tidyr
+
+Wijffels, J., & Straka, M. (2026). udpipe: Tokenization, parts of speech tagging, lemmatization and dependency parsing with the 'UDPipe' 'NLP' toolkit (R package version 0.8.16). https://CRAN.R-project.org/package=udpipe
+
+
