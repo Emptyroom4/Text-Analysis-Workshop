@@ -59,11 +59,11 @@ The workshop uses several R packages, including:
 - `purrr`
 - `stringr`
 - `ggplot2`
-- 'hms'
-- 'tidytext'
-- 'quanteda'
-- 'quanteda.textstats'
-- 'syuzhet'
+- `hms`
+- `tidytext`
+- `quanteda`
+- `quanteda.textstats`
+- `syuzhet`
 
 If a required package is not already installed, you can install it with:
 
