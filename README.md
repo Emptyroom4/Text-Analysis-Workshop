@@ -50,7 +50,6 @@ You will need:
 
 - R
 - RStudio
-- Quarto for Part 1
 
 The workshop uses several R packages, including:
 
