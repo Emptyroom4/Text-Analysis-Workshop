@@ -1,0 +1,43 @@
+speaker,name,stakeholder_fine,stakeholder,evidence,confidence,notes
+Juandiego Wade,Juandiego Wade,council,council,"role column: Mayor, City Council",high,Chair. Most turns procedural; one substantive turn at 05:35 in the ordinance block.
+Brian Pinkston,Brian Pinkston,council,council,"role column: Vice Mayor, City Council",high,Moved to table the ordinance.
+Natalie Oschrin,Natalie Oschrin,council,council,"role column: Member, City Council",high,
+Michael Payne,Michael Payne,council,council,"role column: Member, City Council",high,
+Lloyd Snook,Lloyd Snook,council,council,"role column: Councillor, City Council",high,
+SPEAKER_43,Chief Michael Kochis,police,police_staff,"Presented the ordinance; addressed as ""Thank you, Chief Kochis"" by the Mayor at 05:45",high,Largest single speaker in the subset (2160 words). Police voice is effectively this one person.
+SPEAKER_33,,city_staff,police_staff,"""anytime we get asked to draft an ordinance, we do so ... the city attorney's office wrote this ordinance""",high,Role is certain (City Attorney); name never stated in the transcript so left blank by decision 2026-07-21. Legal-framework voice.
+SPEAKER_26,,city_staff,police_staff,"""A couple of things for the city manager's report""",high,Role is certain (City Manager); name never stated so left blank. Only 28 words in the subset; likely dropped by the topical filter.
+Kyna Thomas,Kyna Thomas,city_staff,police_staff,role column: Clerk of Council,high,Procedural only (roll call). Expect topical filter to drop.
+SPEAKER_32,unidentified staff/clerk,city_staff,police_staff,"""The next speaker is Anna Marlowe."" — calling the speaker list",medium,Procedural only. Expect topical filter to drop.
+SPEAKER_36,unidentified,unknown,unknown,"""Daniel Villanueva"" / ""Chief"" — 5 words total",low,Fragments only. Drop.
+SPEAKER_09,Greer Akenbach,business,business,"""I am Executive Director of Friends of Charlottesville Downtown ... here to speak in favor of the ordinance""",high,Clearest business voice. Explicitly represents visitors and business owners.
+SPEAKER_02,Dr. Jean Catherine Gray,business,business,"""I'm speaking as a business owner""",high,"Business owner arguing AGAINST the ordinance — shows the business category is not monolithic. Keep; do not recode to fit the hypothesis."
+SPEAKER_34,Jessica Jackson,property_owner,public,"""Jessica Jackson, property owner of Charlottesville""",high,"Decided 2026-07-21: property owner is not a business owner. She speaks about council conduct and the Chief's proposal, not commerce. Fine label kept so she can be split out later."
+SPEAKER_29,Shayla Washington,service_provider,public,"""I'm the executive director of the Blue Ridge Area Coalition for the Homeless""",high,"Also has lived experience (""I actually experienced homelessness here""). Named by the Chief in council discussion."
+SPEAKER_11,Major Donald Wilson,service_provider,public,"""I'm Major Donald Wilson. I'm the new officer at the Salvation Army""",high,Shelter-capacity frame — closer to staff than to public in content.
+SPEAKER_23,Latricia Gals,service_provider,public,"""I am the executive director of FAR ... the Public Housing Association of Residents""",high,"Surname likely mis-transcribed. Speech is split between the LV development and the ordinance."
+SPEAKER_25,Rev. Dr. Arthur Long Jr.,faith,public,"""my name is Reverend Dr. Arthur Long Jr. from the First Baptist Church downtown""",high,
+SPEAKER_19,Alex Joyner,faith,public,"""co-chair of Impact Charlottesville ... pastor of Charlottesville First United Methodist Church""",high,County resident; speaks for a 27-congregation coalition.
+SPEAKER_35,Matt Seaton,faith,public,"""Matt Seaton, pastor at Wesley Memorial ... Our congregation is a member of IMPACT""",high,
+SPEAKER_04,Beth Robinson,public,public,"""My name is Beth Robinson, and I'm here to speak against this ordinance""",high,Lived experience of homelessness.
+SPEAKER_07,Joshua Ballew,public,public,"""my name is Joshua Ballew ... I've been homeless ever since""",high,Lived experience.
+SPEAKER_14,Christopher Hall,public,public,"""My name is Christopher Hall. I've been displaced and homeless for the past ten years""",high,Lived experience.
+Rosia Parker,Rosia Parker,public,public,"""my name is Rosia Parker ... being homeless for five years with children""",high,Lived experience. Named in the transcript.
+SPEAKER_03,unidentified,public,public,"""I've lived on the street at multiple points in my life""",medium,No name given. Lived experience.
+Jeff Fogel,Jeff Fogel,public,public,"""I litigated that case ... for four years"" — civil rights attorney",high,"Advocate, not a service provider. Spoke in all three blocks."
+Don Gathers,Don Gathers,public,public,"""I urge each of you to please reconsider this coming proposal to attack the homeless""",high,Community advocate. Named in transcript.
+SPEAKER_13,Jordan McNish,public,public,"""my name is Jordan McNish and I live at 1226 Rockfish River Road""",high,
+SPEAKER_08,,public,public,"""When I read that an ordinance would be brought up to council today""",high,No self-introduction; name left blank by decision 2026-07-21. Stakeholder is unambiguous from content.
+SPEAKER_28,Ziona Bryant,public,public,"""Good evening, Ziona Bryant, Charlottesville resident""",high,
+SPEAKER_24,Matthew Gilliken,public,public,"""My name is Matthew Gilliken. I live in Fightville. I'm one of the co-chairs of Liveable Seaville""",high,Neighborhood association; place names likely mis-transcribed (Fifeville / Livable Cville).
+SPEAKER_40,Mo Van De Sompel,public,public,"""Mo Van De Sompel, 608 Cabell Avenue""",high,
+SPEAKER_20,Ralph Braun,public,public,"""Ralph Braun. I live in Crozet. I live in Crozet because I was evicted in Charlottesville""",high,Most procedurally detailed public critique.
+SPEAKER_53,Jacqueline Kim,public,public,"""my name is Jacqueline Kim. I'm a resident in Pantops and an employee in the city""",high,Read a statement on behalf of an absent person.
+SPEAKER_55,Aiden Workman,public,public,"""my name's Aiden Workman. I do work for Impact. I'm not speaking on behalf of Impact""",high,Explicitly disclaims the organizational role — coded public on his own instruction.
+SPEAKER_05,Wendy (surname not given),public,public,"""My name is Wendy. I'm a community organizer at the Public Housing Association of Residence ... speaking on behalf of myself and only myself""",medium,Same disclaimer pattern as SPEAKER_55 — coded public despite the PHAR affiliation.
+SPEAKER_51,unidentified,public,public,"""I had no plans to speak tonight until just a few minutes ago""",medium,No name. 94 words.
+Joy Johnson,Joy Johnson,public,public,"""My name is Joy Johnson. I am an advocate for public housing ... public housing resident, Legal Aid Justice Center, and PHAR""",high,"Identity clear. TOPICALITY is the issue: both her speeches are mostly about the 12-story building. Let the topical filter decide, not the roster."
+SPEAKER_22,unidentified frequent commenter,public,public,"""when I ran for city council, I was defeated three times""",low,"Recurring interjector across all three blocks; long off-topic remarks (Valley Forge, Paul Long, MLK). Expect the topical filter to drop most or all."
+SPEAKER_30,Elaine Carey,public,public,"""my name is Elaine Carey I'm a resident of the city ... I also work at Cultivate Charlottesville""",medium,"OFF-TOPIC: speaks about the West Haven building, not the ordinance. Expect drop."
+SPEAKER_54,Mary Joyce Scala,public,public,"""My name is Mary Joyce Scala ... I am representing Preservation Piedmont""",high,"OFF-TOPIC: historic-preservation demolition appeal. KNOWN FALSE POSITIVE — must appear in the drop list."
+SPEAKER_01,Genevieve Keller,public,public,"""Good evening, Genevieve Keller, First Street"" — local preservation",high,"OFF-TOPIC: Wortland/Wharton-Baker House. KNOWN FALSE POSITIVE — must appear in the drop list."
